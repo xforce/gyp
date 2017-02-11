@@ -387,7 +387,7 @@ def _BuildCommandLineForRuleRaw(spec, rule, cmd, cygwin_shell, has_input_path,
     if not rule is None and not rule.get('outputs') is None and cmd[0] == 'python':
       inputs = rule.get('inputs')
       if not inputs is None and len(inputs) > 1 and not inputs[0].startswith('..') and not rule.get('outputs')[0] is str and rule.get('outputs')[0].startswith('$'):
-        inputs = [i if (i[:1] in "/-") else _FixPath(i) for i in inputs[1:]]
+        inputs = [i if (i[:1] in "/-") else _FixPath(i) for i in inputs]
         inputs.insert(0, _FixPath(cmd[1]))
         if len(rule.get('inputs')) > 1:
           # We can now just use cd then call command with shorter names
