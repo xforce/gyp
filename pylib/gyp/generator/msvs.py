@@ -398,11 +398,9 @@ def _BuildCommandLineForRuleRaw(spec, rule, cmd, cygwin_shell, has_input_path,
           for i, e in enumerate(inputs):
             if e.startswith(prefix):
                 inputs[i] = e[len(prefix):]
-          print command
           command.append(inputs[0])
           command.append(rule.get('outputs')[0])
           inputs = inputs[1:]
-          print input_dir_preamble + ' '.join(command + inputs)
           return input_dir_preamble + ' '.join(command + inputs) + '&popd'
       # Add call before command to ensure that commands can be tied together one
       # after the other without aborting in Incredibuild, since IB makes a bat
