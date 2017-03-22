@@ -86,18 +86,26 @@ class VisualStudioVersion(object):
       # vcvars32, which it can only find if VS??COMNTOOLS is set, which it
       # isn't always.
       if target_arch == 'x86':
+        if self.short_name == '2017':
+           return [os.path.normpath(
+             os.path.join(self.path, 'Common7/Tools/VsDevCmd.bat')), '/no_logo',
+             '/arch=x86']
         if self.short_name >= '2013' and self.short_name[-1] != 'e' and (
             os.environ.get('PROCESSOR_ARCHITECTURE') == 'AMD64' or
             os.environ.get('PROCESSOR_ARCHITEW6432') == 'AMD64'):
           # VS2013 and later, non-Express have a x64-x86 cross that we want
           # to prefer.
-          return [os.path.normpath(
-             os.path.join(self.path, 'VC/vcvarsall.bat')), 'amd64_x86']
+          return [os.path.normpath(os.path.join(self.path, 'VC/vcvarsall.bat')), 'amd64_x86']
         # Otherwise, the standard x86 compiler.
         return [os.path.normpath(
           os.path.join(self.path, 'Common7/Tools/vsvars32.bat'))]
       else:
         assert target_arch == 'x64'
+        if self.short_name == '2017':
+           return [os.path.normpath(
+             os.path.join(self.path, 'Common7/Tools/VsDevCmd.bat')), '/no_logo',
+             '/arch=x64']
+
         arg = 'x86_amd64'
         # Use the 64-on-64 compiler if we're not using an express
         # edition and we're running on a 64bit OS.
@@ -233,9 +241,19 @@ def _CreateVersion(name, path, sdk_based=False):
   autodetected if GYP_MSVS_VERSION is not explicitly specified. If a version is
   passed in that doesn't match a value in versions python will throw a error.
   """
+  print path
   if path:
     path = os.path.normpath(path)
   versions = {
+      '2017': VisualStudioVersion('2017',
+                                  'Visual Studio 2017',
+                                  solution_version='12.00',
+                                  project_version='15.0',
+                                  flat_sln=False,
+                                  uses_vcxproj=True,
+                                  path=path,
+                                  sdk_based=sdk_based,
+                                  default_toolset='v141'),
       '2015': VisualStudioVersion('2015',
                                   'Visual Studio 2015',
                                   solution_version='12.00',
@@ -356,6 +374,7 @@ def _DetectVisualStudioVersions(versions_to_check, force_express):
       2012(e) - Visual Studio 2012 (11)
       2013(e) - Visual Studio 2013 (12)
       2015    - Visual Studio 2015 (14)
+      2017    - Visual Studio 2015 (15)
     Where (e) is e for express editions of MSVS and blank otherwise.
   """
   version_to_year = {
@@ -365,6 +384,7 @@ def _DetectVisualStudioVersions(versions_to_check, force_express):
       '11.0': '2012',
       '12.0': '2013',
       '14.0': '2015',
+      '15.0': '2017',
   }
   versions = []
   for version in versions_to_check:
@@ -395,15 +415,22 @@ def _DetectVisualStudioVersions(versions_to_check, force_express):
 
     # The old method above does not work when only SDK is installed.
     keys = [r'HKLM\Software\Microsoft\VisualStudio\SxS\VC7',
-            r'HKLM\Software\Wow6432Node\Microsoft\VisualStudio\SxS\VC7']
+            r'HKLM\Software\Wow6432Node\Microsoft\VisualStudio\SxS\VC7',
+            r'HKLM\Software\Wow6432Node\Microsoft\VisualStudio\SxS\VS7']
     for index in range(len(keys)):
       path = _RegistryGetValue(keys[index], version)
       if not path:
         continue
       path = _ConvertToCygpath(path)
-      if version != '14.0':  # There is no Express edition for 2015.
+      if version_to_year[version] < '2015':  # There is no Express edition for 2015.
         versions.append(_CreateVersion(version_to_year[version] + 'e',
             os.path.join(path, '..'), sdk_based=True))
+      else:
+        full_path = os.path.join(path, 'Common7', 'IDE', 'devenv.exe')
+        if os.path.exists(full_path):
+          # Add this one.
+          versions.append(_CreateVersion(version_to_year[version],
+              path))
 
   return versions
 
@@ -420,7 +447,7 @@ def SelectVisualStudioVersion(version='auto', allow_fallback=True):
   if version == 'auto':
     version = os.environ.get('GYP_MSVS_VERSION', 'auto')
   version_map = {
-    'auto': ('14.0', '12.0', '10.0', '9.0', '8.0', '11.0'),
+    'auto': ('15.0', '14.0', '12.0', '10.0', '9.0', '8.0', '11.0'),
     '2005': ('8.0',),
     '2005e': ('8.0',),
     '2008': ('9.0',),
@@ -432,6 +459,7 @@ def SelectVisualStudioVersion(version='auto', allow_fallback=True):
     '2013': ('12.0',),
     '2013e': ('12.0',),
     '2015': ('14.0',),
+    '2017': ('15.0',),
   }
   override_path = os.environ.get('GYP_MSVS_OVERRIDE_PATH')
   if override_path:

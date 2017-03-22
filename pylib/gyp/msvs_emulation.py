@@ -309,11 +309,11 @@ class MsvsSettings(object):
     # 'Release_x64'), and a second target-specific configuration, which is an
     # override for the global one. |config| is remapped here to take into
     # account the local target-specific overrides to the global configuration.
-    arch = self.GetArch(config)
-    if arch == 'x64' and not config.endswith('_x64'):
-      config += '_x64'
-    if arch == 'x86' and config.endswith('_x64'):
-      config = config.rsplit('_', 1)[0]
+    #arch = self.GetArch(config)
+    #if arch == 'x64' and not config.endswith('_x64'):
+    #  config += '_x64'
+    #if arch == 'x86' and config.endswith('_x64'):
+    # config = config.rsplit('_', 1)[0]
     return config
 
   def _Setting(self, path, config,
