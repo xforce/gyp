@@ -7,6 +7,7 @@ This module helps emulate Visual Studio 2008 behavior on top of other
 build systems, primarily ninja.
 """
 
+import collections
 import os
 import pickle
 import re
@@ -20,7 +21,17 @@ import gyp.MSVSUtil
 import gyp.MSVSVersion
 from gyp import DebugOutput, DEBUG_GENERAL
 
-vcvars_cache = dict()
+try:
+  import sys
+  reload(sys)
+  sys.setdefaultencoding('utf8')
+except:
+  pass
+
+try:
+  basestring = basestring
+except NameError:
+  basestring = str
 
 windows_quoter_regex = re.compile(r'(\\*)"')
 
@@ -88,8 +99,8 @@ def _AddPrefix(element, prefix):
   """Add |prefix| to |element| or each subelement if element is iterable."""
   if element is None:
     return element
-  # Note, not Iterable because we don't want to handle strings like that.
-  if isinstance(element, list) or isinstance(element, tuple):
+  if (isinstance(element, collections.Iterable) and
+      not isinstance(element, basestring)):
     return [prefix + e for e in element]
   else:
     return prefix + element
@@ -101,7 +112,8 @@ def _DoRemapping(element, map):
   if map is not None and element is not None:
     if not callable(map):
       map = map.get # Assume it's a dict, otherwise a callable to do the remap.
-    if isinstance(element, list) or isinstance(element, tuple):
+    if (isinstance(element, collections.Iterable) and
+        not isinstance(element, basestring)):
       element = filter(None, [map(elem) for elem in element])
     else:
       element = map(element)
@@ -113,7 +125,8 @@ def _AppendOrReturn(append, element):
   then add |element| to it, adding each item in |element| if it's a list or
   tuple."""
   if append is not None and element is not None:
-    if isinstance(element, list) or isinstance(element, tuple):
+    if (isinstance(element, collections.Iterable) and
+        not isinstance(element, basestring)):
       append.extend(element)
     else:
       append.append(element)
@@ -135,6 +148,8 @@ def _FindDirectXInstallation():
     cmd = ['reg.exe', 'query', r'HKLM\Software\Microsoft\DirectX', '/s']
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     for line in p.communicate()[0].splitlines():
+      if isinstance(line, bytes):
+        line = line.decode()
       if 'InstallPath' in line:
         dxsdk_dir = line.split('    ')[3] + "\\"
 
@@ -151,7 +166,7 @@ def GetGlobalVSMacroEnv(vs_version):
   # Visual Studio is actually installed.
   if vs_version.Path():
     env['$(VSInstallDir)'] = vs_version.Path()
-    env['$(VCInstallDir)'] = os.path.join(vs_version.Path(), 'VC') + '\\'
+    env['$(VCInstallDir)'] = os.path.join(vs_version.Path().decode(), 'VC') + '\\'
   # Chromium uses DXSDK_DIR in include/lib paths, but it may or may not be
   # set. This happens when the SDK is sync'd via src-internal, rather than
   # by typical end-user installation of the SDK. If it's not set, we don't
@@ -213,7 +228,7 @@ class MsvsSettings(object):
     configs = spec['configurations']
     for field, default in supported_fields:
       setattr(self, field, {})
-      for configname, config in configs.iteritems():
+      for configname, config in configs.items():
         getattr(self, field)[configname] = config.get(field, default())
 
     self.msvs_cygwin_dirs = spec.get('msvs_cygwin_dirs', ['.'])
@@ -316,7 +331,7 @@ class MsvsSettings(object):
     # first level is globally for the configuration (this is what we consider
     # "the" config at the gyp level, which will be something like 'Debug' or
     # 'Release'), VS2015 and later only use this level
-    if self.vs_version.short_name >= 2015:
+    if int(self.vs_version.short_name) >= 2015:
       return config
     # and a second target-specific configuration, which is an
     # override for the global one. |config| is remapped here to take into
@@ -480,13 +495,13 @@ class MsvsSettings(object):
         prefix='/arch:')
     cflags.extend(['/FI' + f for f in self._Setting(
         ('VCCLCompilerTool', 'ForcedIncludeFiles'), config, default=[])])
-    if self.vs_version.project_version >= 12.0:
+    if float(self.vs_version.project_version) >= 12.0:
       # New flag introduced in VS2013 (project version 12.0) Forces writes to
       # the program database (PDB) to be serialized through MSPDBSRV.EXE.
       # https://msdn.microsoft.com/en-us/library/dn502518.aspx
       cflags.append('/FS')
     # ninja handles parallelism by itself, don't have the compiler do it too.
-    cflags = filter(lambda x: not x.startswith('/MP'), cflags)
+    cflags = [x for x in cflags if not x.startswith('/MP')]
     return cflags
 
   def _GetPchFlags(self, config, extension):
@@ -653,19 +668,17 @@ class MsvsSettings(object):
 
     # If the base address is not specifically controlled, DYNAMICBASE should
     # be on by default.
-    base_flags = filter(lambda x: 'DYNAMICBASE' in x or x == '/FIXED',
-                        ldflags)
-    if not base_flags:
+    if not any('DYNAMICBASE' in flag or flag == '/FIXED' for flag in ldflags):
       ldflags.append('/DYNAMICBASE')
 
     # If the NXCOMPAT flag has not been specified, default to on. Despite the
     # documentation that says this only defaults to on when the subsystem is
     # Vista or greater (which applies to the linker), the IDE defaults it on
     # unless it's explicitly off.
-    if not filter(lambda x: 'NXCOMPAT' in x, ldflags):
+    if not any('NXCOMPAT' in flag for flag in ldflags):
       ldflags.append('/NXCOMPAT')
 
-    have_def_file = filter(lambda x: x.startswith('/DEF:'), ldflags)
+    have_def_file = any(flag.startswith('/DEF:') for flag in ldflags)
     manifest_flags, intermediate_manifest, manifest_files = \
         self._GetLdManifestFlags(config, manifest_base_name, gyp_to_build_path,
                                  is_executable and not have_def_file, build_dir)
@@ -957,7 +970,9 @@ def ExpandMacros(string, expansions):
   """Expand $(Variable) per expansions dict. See MsvsSettings.GetVSMacroEnv
   for the canonical way to retrieve a suitable dict."""
   if '$' in string:
-    for old, new in expansions.iteritems():
+    for old, new in expansions.items():
+      if isinstance(new, bytes):
+        new = new.decode()
       assert '$(' not in new, new
       string = string.replace(old, new)
   return string
@@ -980,27 +995,27 @@ def _ExtractImportantEnvironment(output_of_set, arch):
   # This occasionally happens and leads to misleading SYSTEMROOT error messages
   # if not caught here.
   cl_find = 'cl.exe'
-  if 'Visual Studio 2017' in output_of_set:
+  if 'Visual Studio 2017'.encode('utf-8') in output_of_set:
     cl_find = arch + '.' + cl_find
-  if output_of_set.count('=') == 0:
+  if output_of_set.count('='.encode('utf-8')) == 0:
     raise Exception('Invalid output_of_set. Value is:\n%s' % output_of_set)
   for line in output_of_set.splitlines():
-    if re.search(cl_find, line, re.I):
+    if re.search(cl_find.encode(), line, re.I):
       env['GYP_CL_PATH'] = line
       continue
     for envvar in envvars_to_save:
-      if re.match(envvar + '=', line, re.I):
-        var, setting = line.split('=', 1)
+      if re.match((envvar + '=').encode(), line, re.I):
+        var, setting = line.split('='.encode(), 1)
         if envvar == 'path':
           # Our own rules (for running gyp-win-tool) and other actions in
           # Chromium rely on python being in the path. Add the path to this
           # python here so that if it's not in the path when ninja is run
           # later, python will still be found.
-          setting = os.path.dirname(sys.executable) + os.pathsep + setting
+          setting = os.path.dirname(sys.executable) + os.pathsep + setting.decode()
         env[var.upper()] = setting
         break
 
-  for required in ('SYSTEMROOT', 'TEMP', 'TMP'):
+  for required in (b'SYSTEMROOT', b'TEMP', b'TMP'):
     if required not in env:
       raise Exception('Environment variable "%s" '
                       'required to be set to valid path' % required)
@@ -1012,8 +1027,17 @@ def _FormatAsEnvironmentBlock(envvar_dict):
   CreateProcess documentation for more details."""
   block = ''
   nul = '\0'
-  for key, value in envvar_dict.iteritems():
-    block += key + '=' + value + nul
+  for key, value in envvar_dict.items():
+    try:
+      block += key
+    except:
+      block += key.decode()
+    block += '='
+    try:
+      block += value
+    except:
+      block += value.decode()
+    block += nul
   block += nul
   return block
 
@@ -1051,7 +1075,7 @@ def GenerateEnvironmentFiles(toplevel_build_dir, generator_flags,
       env['INCLUDE'] = ';'.join(system_includes)
 
     env_block = _FormatAsEnvironmentBlock(env)
-    f = open_out(os.path.join(toplevel_build_dir, 'environment.' + arch), 'wb')
+    f = open_out(os.path.join(toplevel_build_dir, 'environment.' + arch), 'w')
     f.write(env_block)
     f.close()
 
@@ -1081,7 +1105,7 @@ def _GetEnvironment(arch, vs, open_out):
   env = {}
   args = vs.SetupScript(arch)
   args.extend(('&&', 'set', '&&', 'where', 'cl.exe'))
-  cache_key = hashlib.md5(''.join(args)).hexdigest()
+  cache_key = hashlib.md5(''.join(args).encode('utf-8')).hexdigest()
   # The default value for %TEMP% will make all cache look ups to safely miss
   appdata_dir = os.environ.get('TEMP', '')
   cache_path = os.path.join(appdata_dir, '.gyp-cache')
@@ -1114,8 +1138,8 @@ def _GetEnvironment(arch, vs, open_out):
     try:
       with open_out(cache_keyed_file) as f:
         pickle.dump(env, f)
-    except Exception, e:
-      print e
+    except Exception as e:
+      print (e)
   return env
 
 
@@ -1128,7 +1152,7 @@ def VerifyMissingSources(sources, build_dir, generator_flags, gyp_to_ninja):
   if int(generator_flags.get('msvs_error_on_missing_sources', 0)):
     no_specials = filter(lambda x: '$' not in x, sources)
     relative = [os.path.join(build_dir, gyp_to_ninja(s)) for s in no_specials]
-    missing = filter(lambda x: not os.path.exists(x), relative)
+    missing = [x for x in relative if not os.path.exists(x)]
     if missing:
       # They'll look like out\Release\..\..\stuff\things.cc, so normalize the
       # path for a slightly less crazy looking output.

@@ -75,7 +75,6 @@ class Writer(object):
             order_only = map(escape_path, self._as_list(order_only))
             all_inputs.append('||')
             all_inputs.extend(order_only)
-
         self._line('build %s: %s' % (' '.join(out_outputs),
                                         ' '.join([rule] + all_inputs)))
 

@@ -14,7 +14,13 @@ import glob
 
 
 def JoinPath(*args):
-  return os.path.normpath(os.path.join(*args))
+  args_converted = []
+  for (value) in args:
+    if isinstance(value, bytes):
+      args_converted.append(value.decode())
+    else:
+      args_converted.append(value)
+  return os.path.normpath(os.path.join(*tuple(args_converted)))
 
 
 class VisualStudioVersion(object):
@@ -189,7 +195,7 @@ def _RegistryQuery(key, value=None):
   text = None
   try:
     text = _RegistryQueryBase('Sysnative', key, value)
-  except OSError, e:
+  except OSError as e:
     if e.errno == errno.ENOENT:
       text = _RegistryQueryBase('System32', key, value)
     else:
@@ -207,12 +213,15 @@ def _RegistryGetValueUsingWinReg(key, value):
     contents of the registry key's value, or None on failure.  Throws
     ImportError if _winreg is unavailable.
   """
-  import _winreg
+  try:
+    import _winreg as winreg
+  except ImportError:
+    import winreg
   try:
     root, subkey = key.split('\\', 1)
     assert root == 'HKLM'  # Only need HKLM for now.
-    with _winreg.OpenKey(_winreg.HKEY_LOCAL_MACHINE, subkey) as hkey:
-      return _winreg.QueryValueEx(hkey, value)[0]
+    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, subkey) as hkey:
+      return winreg.QueryValueEx(hkey, value)[0]
   except WindowsError:
     return None
 
@@ -407,7 +416,7 @@ def _DetectVisualStudioVersions(versions_to_check, force_express):
       args = ['powershell', '-NoProfile', '-ExecutionPolicy', 'Unrestricted',
               '%s IsVcCompatible InstallationPath' % tool_path]
       try:
-        instPath2017 = subprocess.check_output(args).split('\n')[0].strip()
+        instPath2017 = subprocess.check_output(args).split('\n'.encode())[0].strip()
         if os.path.exists(instPath2017):
           versions.append(_CreateVersion('2017', instPath2017))
       except Exception as e:

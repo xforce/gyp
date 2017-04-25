@@ -6,6 +6,10 @@ import re
 import os
 import locale
 
+try:
+  reduce
+except NameError:
+  from functools import reduce
 
 def XmlToString(content, encoding='utf-8', pretty=False):
   """ Writes the XML content to disk, touching the file only if it has changed.
@@ -80,7 +84,7 @@ def _ConstructContentList(xml_parts, specification, pretty, level=0):
   # Optionally in second position is a dictionary of the attributes.
   rest = specification[1:]
   if rest and isinstance(rest[0], dict):
-    for at, val in sorted(rest[0].iteritems()):
+    for at, val in sorted(rest[0].items()):
       xml_parts.append(' %s="%s"' % (at, _XmlEscape(val, attr=True)))
     rest = rest[1:]
   if rest:
@@ -119,7 +123,10 @@ def WriteXmlIfChanged(content, path, encoding='utf-8', pretty=False,
 
   default_encoding = locale.getdefaultlocale()[1]
   if default_encoding and default_encoding.upper() != encoding.upper():
-    xml_string = xml_string.decode(default_encoding).encode(encoding)
+    if isinstance(xml_string, bytes):
+      xml_string = xml_string.decode(default_encoding).encode(encoding)
+    else:
+      xml_string = xml_string.encode(encoding)
 
   # Get the old content
   try:
@@ -132,7 +139,7 @@ def WriteXmlIfChanged(content, path, encoding='utf-8', pretty=False,
   # It has changed, write it
   if existing != xml_string:
     f = open(path, 'w')
-    f.write(xml_string)
+    f.write(xml_string.decode())
     f.close()
 
 
