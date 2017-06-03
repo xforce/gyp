@@ -384,7 +384,8 @@ def _BuildCommandLineForRuleRaw(spec, rule, cmd, cygwin_shell, has_input_path,
     # nanos
     # special handling because of long paths
     # this transforms the command to something 
-    if not rule is None and not rule.get('outputs') is None and cmd[0] == 'python':
+    
+    if not rule is None and not rule.get('outputs') is None and cmd[0] == 'python' and cmd[1] != 'tools/mkssldef.py' and cmd[1] != 'icutrim.py' and 'CodeGenerator.py' not in cmd[1] and 'xxd.py' not in cmd[1]:
       inputs = rule.get('inputs')
       if not inputs is None and len(inputs) > 1 and not inputs[0].startswith('..') and not rule.get('outputs')[0] is str and rule.get('outputs')[0].startswith('$'):
         inputs = [i if (i[:1] in "/-") else _FixPath(i) for i in inputs]
