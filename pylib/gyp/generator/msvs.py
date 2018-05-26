@@ -389,56 +389,40 @@ def _BuildCommandLineForRuleRaw(spec, rule, cmd, cygwin_shell, has_input_path,
     # nanos
     # special handling because of long paths
     # this transforms the command to something
-
-    if not rule is None and not rule.get('outputs') is None and cmd[0] == 'python' and cmd[1] != 'tools/mkssldef.py' and cmd[1] != 'icutrim.py' and 'CodeGenerator.py' not in cmd[1] and 'xxd.py' not in cmd[1]:
+    # Add call before command to ensure that commands can be tied together one
+    # after the other without aborting in Incredibuild, since IB makes a bat
+    # file out of the raw command string, and some commands (like python) are
+    # actually batch files themselves.
+    command.insert(0, 'call')
+    arguments = [i if (i[:1] in "/-") else _FixPath(i) for i in cmd[1:]]
+    arguments = [i.replace('$(InputDir)', '%INPUTDIR%') for i in arguments]
+    arguments = [MSVSSettings.FixVCMacroSlashes(i) for i in arguments]
+    if quote_cmd:
+      # Support a mode for using cmd directly.
+      # Convert any paths to native form (first element is used directly).
+      # TODO(quote):  regularize quoting path names throughout the module
+      arguments = ['"%s"' % i for i in arguments]
+    # Collapse into a single command.
+    single_cmd = input_dir_preamble + ' '.join(command + arguments)
+    if len(single_cmd) > 4096:
+      print ("Warning: Custom Build Tool command too long, trying to automatically fix it")
       inputs = rule.get('inputs')
-      if not inputs is None and len(inputs) > 1 and not inputs[0].startswith('..') and not rule.get('outputs')[0] is str and rule.get('outputs')[0].startswith('$'):
-        inputs = [i if (i[:1] in "/-") else _FixPath(i) for i in inputs]
-        inputs.insert(0, _FixPath(cmd[1]))
-        if len(rule.get('inputs')) > 1:
-          # We can now just use cd then call command with shorter names
-          # This is to avoid character count limit in MSVS cmd calls
-          # Meh
-          prefix = commonprefix(inputs)
-          command.insert(0, 'pushd ' + prefix + '&')
-          for i, e in enumerate(inputs):
-            if e.startswith(prefix):
-                inputs[i] = e[len(prefix):]
-          command.append(inputs[0])
-          command.append(rule.get('outputs')[0])
-          inputs = inputs[1:]
-          return input_dir_preamble + ' '.join(command + inputs) + '&popd'
-      # Add call before command to ensure that commands can be tied together one
-      # after the other without aborting in Incredibuild, since IB makes a bat
-      # file out of the raw command string, and some commands (like python) are
-      # actually batch files themselves.
-      command.insert(0, 'call')
-      arguments = [i if (i[:1] in "/-") else _FixPath(i) for i in cmd[1:]]
-      arguments = [i.replace('$(InputDir)', '%INPUTDIR%') for i in arguments]
-      arguments = [MSVSSettings.FixVCMacroSlashes(i) for i in arguments]
-      if quote_cmd:
-        # Support a mode for using cmd directly.
-        # Convert any paths to native form (first element is used directly).
-        # TODO(quote):  regularize quoting path names throughout the module
-        arguments = ['"%s"' % i for i in arguments]
-      # Collapse into a single command.
-      return input_dir_preamble + ' '.join(command + arguments)
-    else:
-      # Add call before command to ensure that commands can be tied together one
-      # after the other without aborting in Incredibuild, since IB makes a bat
-      # file out of the raw command string, and some commands (like python) are
-      # actually batch files themselves.
-      command.insert(0, 'call')
-      arguments = [i if (i[:1] in "/-") else _FixPath(i) for i in cmd[1:]]
-      arguments = [i.replace('$(InputDir)', '%INPUTDIR%') for i in arguments]
-      arguments = [MSVSSettings.FixVCMacroSlashes(i) for i in arguments]
-      if quote_cmd:
-        # Support a mode for using cmd directly.
-        # Convert any paths to native form (first element is used directly).
-        # TODO(quote):  regularize quoting path names throughout the module
-        arguments = ['"%s"' % i for i in arguments]
-      # Collapse into a single command.
-      return input_dir_preamble + ' '.join(command + arguments)
+      inputs = [i if (i[:1] in "/-") else _FixPath(i) for i in inputs]
+      inputs.insert(0, _FixPath(cmd[1]))
+      if len(rule.get('inputs')) > 1:
+        # We can now just use cd then call command with shorter names
+        # This is to avoid character count limit in MSVS cmd calls
+        # Meh
+        prefix = commonprefix(inputs)
+        command.insert(0, 'pushd ' + prefix + '&')
+        for i, e in enumerate(inputs):
+          if e.startswith(prefix):
+              inputs[i] = e[len(prefix):]
+        command.append(inputs[0])
+        command.append(rule.get('outputs')[0])
+        inputs = inputs[1:]
+        return input_dir_preamble + ' '.join(command + inputs) + '&popd'
+    return single_cmd
 
 
 def _BuildCommandLineForRule(spec, rule, has_input_path, do_setup_env):
