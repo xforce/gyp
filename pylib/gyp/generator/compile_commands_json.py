@@ -4,6 +4,7 @@
 
 import gyp.common
 import gyp.xcode_emulation
+import gyp.msvs_emulation
 import json
 import os
 
@@ -36,6 +37,9 @@ generator_default_variables = {
 def IsMac(params):
   return 'mac' == gyp.common.GetFlavor(params)
 
+def IsWin(params):
+  return 'win' == gyp.common.GetFlavor(params)
+
 
 def CalculateVariables(default_variables, params):
   default_variables.setdefault('OS', gyp.common.GetFlavor(params))
@@ -51,6 +55,11 @@ def AddCommandsForTarget(cwd, target, params, per_config_commands):
       cflags = xcode_settings.GetCflags(configuration_name)
       cflags_c = xcode_settings.GetCflagsC(configuration_name)
       cflags_cc = xcode_settings.GetCflagsCC(configuration_name)
+    elif IsWin(params):
+      msvs_settings = gyp.msvs_emulation.MsvsSettings(target, params['generator_flags'])
+      cflags = msvs_settings.GetCflags(configuration_name)
+      cflags_c = msvs_settings.GetCflagsC(configuration_name)
+      cflags_cc = msvs_settings.GetCflagsCC(configuration_name)
     else:
       cflags = configuration.get('cflags', [])
       cflags_c = configuration.get('cflags_c', [])
@@ -87,7 +96,7 @@ def AddCommandsForTarget(cwd, target, params, per_config_commands):
       cflags = cflags_c if isc else cflags_cc
       command = ' '.join((cc, defines, includes, cflags,
                           '-c', gyp.common.EncodePOSIXShellArgument(file)))
-      commands.append(dict(command=command, directory=output_dir, file=file))
+      commands.append(dict(command=command, directory=os.path.dirname(file), file=os.path.basename(file)))
 
 
 def GenerateOutput(target_list, target_dicts, data, params):
@@ -102,14 +111,15 @@ def GenerateOutput(target_list, target_dicts, data, params):
     AddCommandsForTarget(cwd, target, params, per_config_commands)
 
   output_dir = params['generator_flags']['output_dir']
+  generator_output_dir = params['options'].generator_output
   for configuration_name, commands in per_config_commands.iteritems():
     filename = os.path.join(output_dir,
+                            generator_output_dir,
                             configuration_name,
                             'compile_commands.json')
     gyp.common.EnsureDirExists(filename)
     fp = open(filename, 'w')
     json.dump(commands, fp=fp, indent=0, check_circular=False)
-
 
 def PerformBuild(data, configurations, params):
   pass
